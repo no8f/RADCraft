@@ -1,6 +1,8 @@
+use crate::auth::MicrosoftAccount;
 use crate::models::{MinecraftVersion, ModSearchResult, Profile, Section, Theme};
 use crate::settings::Settings;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 #[derive(Debug)]
 pub enum AppMsg {
@@ -14,6 +16,15 @@ pub enum AppMsg {
     OpenCreateProfileDialog,
     CloseCreateProfileDialog,
     ShowAboutDialog,
+    AccountButtonClicked,
+    DeviceCodeReceived(Result<(String, String), String>),
+    CopyCodeAndOpenBrowser,
+    CancelMicrosoftLogin,
+    MicrosoftLoginSuccess(MicrosoftAccount),
+    MicrosoftLoginFailed(String),
+    MicrosoftAccountLoaded(Option<MicrosoftAccount>),
+    AccountAvatarLoaded(Option<PathBuf>),
+    MicrosoftLogout,
     VersionsLoaded(Result<Vec<MinecraftVersion>, String>),
     ProfilesLoaded(Result<HashMap<String, Profile>, String>),
     DownloadProgress(f64, String),

@@ -1,3 +1,4 @@
+use crate::auth::MicrosoftAccount;
 use crate::launcher::MinecraftLauncher;
 use crate::models::{MinecraftVersion, ModSearchResult, Profile, Section};
 use crate::modrinth_client::ModrinthClient;
@@ -5,6 +6,7 @@ use crate::settings::Settings;
 use adw::prelude::*;
 use relm4::{ComponentSender, gtk};
 use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub enum AppState {
@@ -46,6 +48,15 @@ pub struct AppModel {
     pub profiles: HashMap<String, Profile>,
     pub available_versions: Vec<MinecraftVersion>,
     pub sorted_versions: Vec<String>,
+
+    // Microsoft Account & Auth State
+    pub microsoft_account: Option<MicrosoftAccount>,
+    pub account_avatar_path: Option<PathBuf>,
+    pub auth_dialog_open: bool,
+    pub auth_user_code: Option<String>,
+    pub auth_verification_uri: Option<String>,
+    pub auth_error: Option<String>,
+    pub auth_task_handle: Option<tokio::task::AbortHandle>,
 
     // Inputs
     pub input_username: String,

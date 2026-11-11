@@ -1,3 +1,4 @@
+mod auth;
 mod config;
 mod java_manager;
 mod launcher;

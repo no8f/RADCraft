@@ -5,6 +5,7 @@ use std::process::Stdio;
 use tokio::fs;
 use tokio::process::Command as TokioCommand;
 
+use crate::auth::MicrosoftAccount;
 use crate::config::LauncherConfig;
 use crate::java_manager::JavaManager;
 use crate::library_manager::LibraryManager;
@@ -452,6 +453,7 @@ impl MinecraftLauncher {
         username: &str,
         ram_mb: u32,
         game_dir: &Path,
+        account: Option<&MicrosoftAccount>,
         on_progress: Option<F>,
     ) -> Result<TokioCommand>
     where
@@ -571,6 +573,8 @@ impl MinecraftLauncher {
 
         let classpath = self.build_classpath(version).await?;
 
+        let launch_username = account.map(|a| a.username.as_str()).unwrap_or(username);
+
         let mut command = TokioCommand::new(java_path);
         command
             .arg("-Xmx".to_string() + &ram_mb.to_string() + "M")
@@ -580,7 +584,7 @@ impl MinecraftLauncher {
             .arg(classpath)
             .arg(main_class)
             .arg("--username")
-            .arg(username)
+            .arg(launch_username)
             .arg("--version")
             .arg(version)
             .arg("--gameDir")
@@ -592,9 +596,19 @@ impl MinecraftLauncher {
             command.arg("--assetIndex").arg(id);
         }
 
+        if let Some(acc) = account {
+            command
+                .arg("--uuid")
+                .arg(&acc.uuid)
+                .arg("--accessToken")
+                .arg(&acc.access_token)
+                .arg("--userType")
+                .arg("msa");
+        } else {
+            command.arg("--accessToken").arg("0");
+        }
+
         command
-            .arg("--accessToken")
-            .arg("0")
             .arg("--userProperties")
             .arg("{}")
             .current_dir(&version_dir)
@@ -612,6 +626,7 @@ impl MinecraftLauncher {
         ram_mb: u32,
         is_fabric: bool,
         game_dir_override: Option<PathBuf>,
+        account: Option<MicrosoftAccount>,
         on_progress: F,
     ) -> Result<TokioCommand>
     where
@@ -619,10 +634,30 @@ impl MinecraftLauncher {
     {
         let mut version_to_launch = base_version.clone();
 
-        // 1. Check JAVA FIRST (Before Fabric)
-        // We need Java to install Fabric anyway, and we need to know if we have it to launch.
-        // We check against base_version first.
+        // Refresh Microsoft token if signed in and expired
+        let active_account = if let Some(acc) = account {
+            if acc.is_expired() {
+                on_progress(0.02, "Refreshing Microsoft account session...".into());
+                match crate::auth::refresh_minecraft_account(&acc).await {
+                    Ok(refreshed) => {
+                        let _ = refreshed.save(&self.config.minecraft_dir).await;
+                        Some(refreshed)
+                    }
+                    Err(e) => {
+                        return Err(anyhow!(
+                            "Microsoft session expired and refresh failed: {}",
+                            e
+                        ));
+                    }
+                }
+            } else {
+                Some(acc)
+            }
+        } else {
+            None
+        };
 
+        // 1. Check JAVA FIRST (Before Fabric)
         on_progress(0.05, "Verifying Java...".into());
         let required_java = self.get_required_java_version(&base_version).await?;
 
@@ -639,14 +674,12 @@ impl MinecraftLauncher {
         // 2. Handle Fabric
         if is_fabric {
             on_progress(0.10, "Checking Fabric...".into());
-            // Check if fabric version already exists for this base version
             let fabric_installed = self.find_installed_fabric_version(&base_version).await;
 
             if let Some(fabric_id) = fabric_installed {
                 version_to_launch = fabric_id;
             } else {
                 on_progress(0.15, "Installing Fabric...".into());
-                // Pass the java we found
                 match self
                     .install_fabric(&base_version, Some(java_p.clone()))
                     .await
@@ -661,10 +694,6 @@ impl MinecraftLauncher {
         let game_dir = if let Some(dir) = game_dir_override {
             dir
         } else {
-            // Default instance dir based on profile/version (logic was in UI, but cleaner here if we pass profile name?)
-            // If simple launch, maybe just use .minecraft? No, better use isolated instances if possible.
-            // But preserving old logic: in UI code it was `instances/profile_name` or `game_dir` from profile.
-            // We'll trust the caller passed the right dir.
             self.config.minecraft_dir.clone()
         };
 
@@ -673,15 +702,15 @@ impl MinecraftLauncher {
         }
 
         on_progress(0.20, "Preparing Minecraft files...".into());
-        // 4. Launch
 
-        // We reuse the lower level launch_minecraft but passing our resolved version
+        // 4. Launch
         let cmd = self
             .launch_minecraft(
                 &version_to_launch,
                 &username,
                 ram_mb,
                 &game_dir,
+                active_account.as_ref(),
                 Some(on_progress.clone()),
             )
             .await;

@@ -9,6 +9,16 @@ pub struct AppWidgets {
     pub navigation_page: NavigationPage,
     pub content_stack: gtk::Stack,
 
+    // Header Bar Account & Auth Dialog Widgets
+    pub account_button: gtk::Button,
+    pub account_avatar: gtk::Image,
+    pub account_label: gtk::Label,
+    pub auth_dialog: adw::Window,
+    pub auth_code_label: gtk::Label,
+    pub auth_status_label: gtk::Label,
+    pub auth_spinner: gtk::Spinner,
+    pub auth_open_browser_button: gtk::Button,
+
     // Pages & Dialogs
     pub home_page: gtk::Box,
     pub create_dialog: adw::Window,

@@ -25,6 +25,7 @@ use tokio::io::BufReader;
 use tokio::runtime::Runtime;
 use zip::ZipArchive;
 
+use crate::auth::MicrosoftAccount;
 use crate::launcher::MinecraftLauncher;
 use crate::models::{Profile, Section, Theme};
 use crate::modrinth_client::ModrinthClient;
@@ -48,7 +49,7 @@ impl SimpleComponent for AppModel {
 
     fn init_root() -> Self::Root {
         let window = adw::ApplicationWindow::builder()
-            .title("RCraft")
+            .title("RADCraft")
             .default_width(900)
             .default_height(540)
             .build();
@@ -121,6 +122,15 @@ impl SimpleComponent for AppModel {
             profiles: HashMap::new(),
             available_versions: Vec::new(),
             sorted_versions: Vec::new(),
+
+            microsoft_account: None,
+            account_avatar_path: None,
+            auth_dialog_open: false,
+            auth_user_code: None,
+            auth_verification_uri: None,
+            auth_error: None,
+            auth_task_handle: None,
+
             input_username: String::new(),
             input_version: None,
 
@@ -162,7 +172,7 @@ impl SimpleComponent for AppModel {
         };
 
         // Set window title
-        root.set_title(Some("RCraft"));
+        root.set_title(Some("RADCraft"));
 
         // Create navigation split view for sidebar navigation
         let navigation_split_view = adw::NavigationSplitView::new();
@@ -331,7 +341,7 @@ impl SimpleComponent for AppModel {
 
         // Wrap content_stack in a NavigationPage for NavigationSplitView
         let navigation_page = adw::NavigationPage::builder()
-            .title("RCraft")
+            .title("RADCraft")
             .child(&content_stack)
             .build();
 
@@ -345,7 +355,7 @@ impl SimpleComponent for AppModel {
         // Create header bar
         let header_bar = adw::HeaderBar::new();
         header_bar.set_show_end_title_buttons(true);
-        header_bar.set_title_widget(Some(&adw::WindowTitle::new("RCraft", "")));
+        header_bar.set_title_widget(Some(&adw::WindowTitle::new("RADCraft", "")));
 
         // Sidebar toggle button
         let sidebar_toggle_button = gtk::Button::builder()
@@ -363,7 +373,7 @@ impl SimpleComponent for AppModel {
         // About button in header bar
         let about_button = gtk::Button::builder()
             .icon_name("help-about-symbolic")
-            .tooltip_text("About RCraft")
+            .tooltip_text("About RADCraft")
             .build();
 
         let sender_clone = sender.clone();
@@ -371,7 +381,126 @@ impl SimpleComponent for AppModel {
             sender_clone.input(AppMsg::ShowAboutDialog);
         });
 
+        // Zed-style Sign In / Online User button in header bar (placed directly left of About button)
+        let account_button_box = gtk::Box::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .spacing(6)
+            .halign(gtk::Align::Center)
+            .valign(gtk::Align::Center)
+            .margin_start(4)
+            .margin_end(4)
+            .build();
+
+        let account_avatar = gtk::Image::builder()
+            .icon_name("avatar-default-symbolic")
+            .pixel_size(16)
+            .build();
+
+        let account_label = gtk::Label::builder().label("Sign In").build();
+
+        account_button_box.append(&account_avatar);
+        account_button_box.append(&account_label);
+
+        let account_button = gtk::Button::builder()
+            .child(&account_button_box)
+            .tooltip_text("Sign in with Microsoft")
+            .build();
+
+        let sender_clone = sender.clone();
+        account_button.connect_clicked(move |_| {
+            sender_clone.input(AppMsg::AccountButtonClicked);
+        });
+
+        // Pack about_button first, then account_button so account_button appears to the left of about_button
         header_bar.pack_end(&about_button);
+        header_bar.pack_end(&account_button);
+
+        // Microsoft Device Code Authentication Dialog
+        let auth_dialog = adw::Window::builder()
+            .title("Sign in with Microsoft")
+            .transient_for(&root)
+            .modal(true)
+            .default_width(420)
+            .hide_on_close(true)
+            .build();
+
+        let sender_close = sender.clone();
+        auth_dialog.connect_close_request(move |_| {
+            sender_close.input(AppMsg::CancelMicrosoftLogin);
+            gtk::glib::Propagation::Stop
+        });
+
+        let auth_main_box = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(0)
+            .build();
+
+        let auth_header = adw::HeaderBar::new();
+        auth_main_box.append(&auth_header);
+
+        let auth_content = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(16)
+            .margin_top(24)
+            .margin_bottom(24)
+            .margin_start(24)
+            .margin_end(24)
+            .halign(gtk::Align::Fill)
+            .build();
+
+        let auth_desc_label = gtk::Label::builder()
+            .label("To sign in with your Microsoft account, open the verification page in your browser and enter the device code below:")
+            .wrap(true)
+            .justify(gtk::Justification::Center)
+            .halign(gtk::Align::Center)
+            .css_classes(vec!["dim-label".to_string()])
+            .build();
+
+        let auth_code_label = gtk::Label::builder()
+            .label("...")
+            .selectable(true)
+            .halign(gtk::Align::Center)
+            .margin_top(8)
+            .margin_bottom(8)
+            .css_classes(vec!["title-1".to_string(), "monospace".to_string()])
+            .build();
+
+        let auth_open_browser_button = gtk::Button::builder()
+            .label("Copy Code & Open Browser")
+            .height_request(42)
+            .css_classes(vec!["suggested-action".to_string(), "pill".to_string()])
+            .sensitive(false)
+            .build();
+
+        let sender_clone = sender.clone();
+        auth_open_browser_button.connect_clicked(move |_| {
+            sender_clone.input(AppMsg::CopyCodeAndOpenBrowser);
+        });
+
+        let auth_status_box = gtk::Box::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .spacing(8)
+            .halign(gtk::Align::Center)
+            .margin_top(8)
+            .build();
+
+        let auth_spinner = gtk::Spinner::new();
+        let auth_status_label = gtk::Label::builder()
+            .label("Requesting device code...")
+            .wrap(true)
+            .css_classes(vec!["dim-label".to_string()])
+            .build();
+
+        auth_status_box.append(&auth_spinner);
+        auth_status_box.append(&auth_status_label);
+
+        auth_content.append(&auth_desc_label);
+        auth_content.append(&auth_code_label);
+        auth_content.append(&auth_open_browser_button);
+        auth_content.append(&auth_status_box);
+
+        auth_main_box.append(&auth_content);
+        auth_dialog.set_content(Some(&auth_main_box));
 
         // Create main container
         let main_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -412,6 +541,14 @@ impl SimpleComponent for AppModel {
             navigation_split_view,
             navigation_page,
             content_stack,
+            account_button,
+            account_avatar,
+            account_label,
+            auth_dialog,
+            auth_code_label,
+            auth_status_label,
+            auth_spinner,
+            auth_open_browser_button,
             home_page,
             create_dialog,
             settings_page,
@@ -489,6 +626,28 @@ impl SimpleComponent for AppModel {
             sender_clone.input(AppMsg::SettingsLoaded(settings));
         });
 
+        // Load saved Microsoft account
+        let sender_clone = sender.clone();
+        if let Some(launcher) = &model.launcher {
+            let config_dir = launcher.config.minecraft_dir.clone();
+            model.rt.spawn(async move {
+                if let Some(account) = MicrosoftAccount::load(&config_dir).await {
+                    let final_account = if account.is_expired() {
+                        match crate::auth::refresh_minecraft_account(&account).await {
+                            Ok(refreshed) => {
+                                let _ = refreshed.save(&config_dir).await;
+                                Some(refreshed)
+                            }
+                            Err(_) => Some(account),
+                        }
+                    } else {
+                        Some(account)
+                    };
+                    sender_clone.input(AppMsg::MicrosoftAccountLoaded(final_account));
+                }
+            });
+        }
+
         // Load profiles
         let sender_clone = sender.clone();
         if let Some(launcher) = &model.launcher {
@@ -522,6 +681,11 @@ impl SimpleComponent for AppModel {
                 if self.input_version.is_none() {
                     self.input_version = self.sorted_versions.first().cloned();
                 }
+                if self.input_username.is_empty() {
+                    if let Some(acc) = &self.microsoft_account {
+                        self.input_username = acc.username.clone();
+                    }
+                }
                 self.fabric_switch_enabled = self
                     .input_version
                     .as_deref()
@@ -549,6 +713,160 @@ impl SimpleComponent for AppModel {
                         .build();
                     about.present();
                 }
+            }
+            AppMsg::AccountButtonClicked => {
+                if let Some(account) = &self.microsoft_account {
+                    if let Some(window) = &self.window {
+                        let dialog = adw::MessageDialog::builder()
+                            .heading(format!("Signed in as {}", account.username))
+                            .body(format!(
+                                "Microsoft Account\nUUID: {}\n\nProfiles launched while signed in will authenticate online using this Microsoft account.",
+                                account.uuid
+                            ))
+                            .transient_for(window)
+                            .modal(true)
+                            .build();
+                        dialog.add_response("close", "Close");
+                        dialog.add_response("logout", "Sign Out");
+                        dialog.set_response_appearance(
+                            "logout",
+                            adw::ResponseAppearance::Destructive,
+                        );
+                        let sender_clone = sender.clone();
+                        dialog.connect_response(None, move |d, response| {
+                            if response == "logout" {
+                                sender_clone.input(AppMsg::MicrosoftLogout);
+                            }
+                            d.close();
+                        });
+                        dialog.present();
+                    }
+                } else {
+                    if let Some(handle) = self.auth_task_handle.take() {
+                        handle.abort();
+                    }
+                    self.auth_user_code = None;
+                    self.auth_verification_uri = None;
+                    self.auth_error = None;
+                    self.auth_dialog_open = true;
+
+                    let sender_clone = sender.clone();
+                    let join_handle = self.rt.spawn(async move {
+                        match crate::auth::start_device_code_flow().await {
+                            Ok(details) => {
+                                let code = details.user_code().secret().to_string();
+                                let uri = details.verification_uri().as_str().to_string();
+                                sender_clone.input(AppMsg::DeviceCodeReceived(Ok((code, uri))));
+
+                                match crate::auth::complete_device_code_flow(details).await {
+                                    Ok(account) => {
+                                        sender_clone.input(AppMsg::MicrosoftLoginSuccess(account));
+                                    }
+                                    Err(e) => {
+                                        sender_clone
+                                            .input(AppMsg::MicrosoftLoginFailed(e.to_string()));
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                sender_clone.input(AppMsg::DeviceCodeReceived(Err(e.to_string())));
+                            }
+                        }
+                    });
+                    self.auth_task_handle = Some(join_handle.abort_handle());
+                }
+            }
+            AppMsg::DeviceCodeReceived(result) => match result {
+                Ok((code, uri)) => {
+                    self.auth_user_code = Some(code);
+                    self.auth_verification_uri = Some(uri);
+                    self.auth_error = None;
+                }
+                Err(e) => {
+                    self.auth_error = Some(e);
+                }
+            },
+            AppMsg::CopyCodeAndOpenBrowser => {
+                if let Some(code) = &self.auth_user_code {
+                    if let Some(display) = gtk::gdk::Display::default() {
+                        display.clipboard().set_text(code);
+                    }
+                    sender.input(AppMsg::ShowToast(
+                        "Device code copied to clipboard".to_string(),
+                    ));
+                }
+                if let Some(uri) = &self.auth_verification_uri {
+                    let uri_clone = uri.clone();
+                    self.rt.spawn(async move {
+                        let _ = open::that(uri_clone);
+                    });
+                }
+            }
+            AppMsg::CancelMicrosoftLogin => {
+                if let Some(handle) = self.auth_task_handle.take() {
+                    handle.abort();
+                }
+                self.auth_dialog_open = false;
+                self.auth_user_code = None;
+                self.auth_verification_uri = None;
+                self.auth_error = None;
+            }
+            AppMsg::MicrosoftLoginSuccess(account) => {
+                self.auth_task_handle = None;
+                self.auth_dialog_open = false;
+                self.auth_user_code = None;
+                self.auth_verification_uri = None;
+                self.auth_error = None;
+
+                let username = account.username.clone();
+                let uuid = account.uuid.clone();
+                self.microsoft_account = Some(account.clone());
+
+                if let Some(launcher) = &self.launcher {
+                    let config_dir = launcher.config.minecraft_dir.clone();
+                    self.rt.spawn(async move {
+                        let _ = account.save(&config_dir).await;
+                    });
+                }
+
+                let sender_clone = sender.clone();
+                self.rt.spawn(async move {
+                    let avatar_path = crate::auth::fetch_avatar_icon(&uuid).await;
+                    sender_clone.input(AppMsg::AccountAvatarLoaded(avatar_path));
+                });
+
+                sender.input(AppMsg::ShowToast(format!("Signed in as {}", username)));
+            }
+            AppMsg::MicrosoftLoginFailed(err) => {
+                self.auth_task_handle = None;
+                self.auth_error = Some(err);
+            }
+            AppMsg::MicrosoftAccountLoaded(account) => {
+                if let Some(acc) = account {
+                    let uuid = acc.uuid.clone();
+                    self.microsoft_account = Some(acc);
+                    let sender_clone = sender.clone();
+                    self.rt.spawn(async move {
+                        let avatar_path = crate::auth::fetch_avatar_icon(&uuid).await;
+                        sender_clone.input(AppMsg::AccountAvatarLoaded(avatar_path));
+                    });
+                }
+            }
+            AppMsg::AccountAvatarLoaded(path) => {
+                self.account_avatar_path = path;
+            }
+            AppMsg::MicrosoftLogout => {
+                self.microsoft_account = None;
+                self.account_avatar_path = None;
+                if let Some(launcher) = &self.launcher {
+                    let config_dir = launcher.config.minecraft_dir.clone();
+                    self.rt.spawn(async move {
+                        let _ = MicrosoftAccount::remove(&config_dir).await;
+                    });
+                }
+                sender.input(AppMsg::ShowToast(
+                    "Signed out of Microsoft account".to_string(),
+                ));
             }
 
             AppMsg::SettingsLoaded(settings) => {
@@ -632,6 +950,7 @@ impl SimpleComponent for AppModel {
                     if let Some(launcher) = &self.launcher {
                         let launcher_clone = launcher.clone();
                         let profile_clone = profile.clone();
+                        let account_clone = self.microsoft_account.clone();
                         let sender_clone = sender.clone();
 
                         self.state = AppState::Downloading {
@@ -661,6 +980,7 @@ impl SimpleComponent for AppModel {
                                         .game_dir
                                         .as_ref()
                                         .map(std::path::PathBuf::from),
+                                    account_clone,
                                     on_progress,
                                 )
                                 .await
@@ -1136,7 +1456,7 @@ impl SimpleComponent for AppModel {
                         let rt = tokio::runtime::Runtime::new().unwrap();
                         rt.block_on(async {
                             let cache_dir = std::env::temp_dir()
-                                .join("rcraft")
+                                .join("radcraft")
                                 .join("cache")
                                 .join("icons");
                             let _ = std::fs::create_dir_all(&cache_dir);
@@ -1285,6 +1605,65 @@ impl SimpleComponent for AppModel {
         if let Some(version) = self.java_dialog_request {
             widgets.java_dialog.set_body(&format!("This version of Minecraft requires Java {}, which was not found on your system. Do you want to download and install it automatically?", version));
             widgets.java_dialog.set_visible(true);
+        }
+
+        // Sync Zed-style Header Bar Account Button
+        if let Some(account) = &self.microsoft_account {
+            widgets.account_label.set_text(&account.username);
+            widgets
+                .account_button
+                .set_tooltip_text(Some(&format!("Signed in as {}", account.username)));
+            if let Some(avatar_path) = &self.account_avatar_path {
+                widgets
+                    .account_avatar
+                    .set_from_file(Some(avatar_path.to_string_lossy().as_ref()));
+            } else {
+                widgets
+                    .account_avatar
+                    .set_icon_name(Some("avatar-default-symbolic"));
+            }
+        } else {
+            widgets.account_label.set_text("Sign In");
+            widgets
+                .account_button
+                .set_tooltip_text(Some("Sign in with Microsoft"));
+            widgets
+                .account_avatar
+                .set_icon_name(Some("avatar-default-symbolic"));
+        }
+
+        // Sync Microsoft Device Code Auth Dialog
+        if let Some(err) = &self.auth_error {
+            widgets.auth_code_label.set_text("Error");
+            widgets.auth_status_label.set_text(err);
+            widgets.auth_spinner.stop();
+            widgets.auth_spinner.set_visible(false);
+            widgets.auth_open_browser_button.set_sensitive(false);
+        } else if let Some(code) = &self.auth_user_code {
+            widgets.auth_code_label.set_text(code);
+            widgets
+                .auth_status_label
+                .set_text("Waiting for sign-in in browser...");
+            widgets.auth_spinner.set_visible(true);
+            if !widgets.auth_spinner.is_spinning() {
+                widgets.auth_spinner.start();
+            }
+            widgets.auth_open_browser_button.set_sensitive(true);
+        } else if self.auth_dialog_open {
+            widgets.auth_code_label.set_text("...");
+            widgets
+                .auth_status_label
+                .set_text("Requesting device code...");
+            widgets.auth_spinner.set_visible(true);
+            if !widgets.auth_spinner.is_spinning() {
+                widgets.auth_spinner.start();
+            }
+            widgets.auth_open_browser_button.set_sensitive(false);
+        } else {
+            widgets.auth_spinner.stop();
+        }
+        if widgets.auth_dialog.is_visible() != self.auth_dialog_open {
+            widgets.auth_dialog.set_visible(self.auth_dialog_open);
         }
 
         // Sync New Profile popup dialog state and inputs
@@ -1597,7 +1976,7 @@ impl AppModel {
                                     // Try to extract icon
                                     let jar_path = mods_dir.join(name);
                                     let cache_dir = std::env::temp_dir()
-                                        .join("rcraft")
+                                        .join("radcraft")
                                         .join("cache")
                                         .join("installed_icons");
                                     let _ = std::fs::create_dir_all(&cache_dir);

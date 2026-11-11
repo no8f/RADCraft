@@ -1,11 +1,11 @@
-use relm4::gtk;
 use gtk::prelude::*;
+use relm4::gtk;
 
 use adw::StatusPage;
 
 pub fn create_loading_widgets() -> (StatusPage, gtk::Spinner, gtk::ProgressBar, gtk::Label) {
     let status_page = adw::StatusPage::builder()
-        .title("Loading RCraft")
+        .title("Loading RADCraft")
         .description("Please wait while the launcher initializes...")
         .build();
 
