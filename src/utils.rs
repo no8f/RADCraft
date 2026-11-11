@@ -1,4 +1,3 @@
-
 use std::cmp::Ordering;
 
 use crate::models::Library;
@@ -18,15 +17,24 @@ pub fn compare_versions(a: &str, b: &str) -> Ordering {
     (pa.0, pa.1, pa.2).cmp(&(pb.0, pb.1, pb.2))
 }
 
-
-
 pub fn is_at_least_1_14(v: &str) -> bool {
     let p = parse_version(v);
     p.0 > 1 || (p.0 == 1 && p.1 >= 14)
 }
 
-
 pub fn is_library_allowed(lib: &Library, os_name: &str) -> bool {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if lib.name.contains("arm64")
+            || lib.name.contains("aarch_64")
+            || lib.name.contains("aarch64")
+            || lib.name.contains("riscv64")
+            || lib.name.ends_with("-x86")
+        {
+            return false;
+        }
+    }
+
     let rules = match &lib.rules {
         Some(r) => r,
         None => return true,

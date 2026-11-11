@@ -1,11 +1,14 @@
-use relm4::gtk;
-use relm4::ComponentSender;
-use gtk::prelude::*;
+use crate::models::Profile;
 use crate::ui::model::AppModel;
 use crate::ui::msg::AppMsg;
-use crate::models::Profile;
+use gtk::prelude::*;
+use relm4::ComponentSender;
+use relm4::gtk;
 
-pub fn create_home_page(_sender: &ComponentSender<AppModel>, profile_list: &gtk::ListBox) -> gtk::Box {
+pub fn create_home_page(
+    sender: &ComponentSender<AppModel>,
+    profile_list: &gtk::ListBox,
+) -> (gtk::Box, gtk::Button, gtk::Button) {
     let main_box = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .hexpand(true)
@@ -16,6 +19,7 @@ pub fn create_home_page(_sender: &ComponentSender<AppModel>, profile_list: &gtk:
         .orientation(gtk::Orientation::Vertical)
         .spacing(24)
         .hexpand(true)
+        .vexpand(true)
         .halign(gtk::Align::Fill)
         .margin_top(24)
         .margin_bottom(24)
@@ -23,14 +27,48 @@ pub fn create_home_page(_sender: &ComponentSender<AppModel>, profile_list: &gtk:
         .margin_end(24)
         .build();
 
-    // Title label
+    // Header row with "Home" label and right-anchored "New Profile" button
+    let header_box = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(12)
+        .hexpand(true)
+        .halign(gtk::Align::Fill)
+        .build();
+
     let title_label = gtk::Label::builder()
         .label("Home")
         .halign(gtk::Align::Start)
+        .valign(gtk::Align::Center)
+        .hexpand(true)
         .css_classes(vec!["title-1".to_string()])
         .build();
 
-    content_container.append(&title_label);
+    let new_profile_header_button_content = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(8)
+        .halign(gtk::Align::Center)
+        .valign(gtk::Align::Center)
+        .build();
+    new_profile_header_button_content
+        .append(&gtk::Image::builder().icon_name("list-add-symbolic").build());
+    new_profile_header_button_content.append(&gtk::Label::new(Some("New Profile")));
+
+    let new_profile_header_button = gtk::Button::builder()
+        .halign(gtk::Align::End)
+        .valign(gtk::Align::Center)
+        .css_classes(vec!["suggested-action".to_string()])
+        .child(&new_profile_header_button_content)
+        .build();
+
+    let sender_clone = sender.clone();
+    new_profile_header_button.connect_clicked(move |_| {
+        sender_clone.input(AppMsg::OpenCreateProfileDialog);
+    });
+
+    header_box.append(&title_label);
+    header_box.append(&new_profile_header_button);
+
+    content_container.append(&header_box);
 
     // Use the provided profile list
     profile_list.set_selection_mode(gtk::SelectionMode::None);
@@ -38,25 +76,76 @@ pub fn create_home_page(_sender: &ComponentSender<AppModel>, profile_list: &gtk:
 
     content_container.append(profile_list);
 
+    // Large "New Profile" button shown instead of the "No profiles yet..." box when there are no profiles
+    let empty_btn_content = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(12)
+        .halign(gtk::Align::Center)
+        .valign(gtk::Align::Center)
+        .margin_top(12)
+        .margin_bottom(12)
+        .margin_start(24)
+        .margin_end(24)
+        .build();
+    empty_btn_content.append(
+        &gtk::Image::builder()
+            .icon_name("list-add-symbolic")
+            .pixel_size(24)
+            .build(),
+    );
+    empty_btn_content.append(
+        &gtk::Label::builder()
+            .label("New Profile")
+            .css_classes(vec!["title-3".to_string()])
+            .build(),
+    );
+
+    let empty_new_profile_button = gtk::Button::builder()
+        .halign(gtk::Align::Center)
+        .valign(gtk::Align::Center)
+        .vexpand(true)
+        .width_request(260)
+        .height_request(64)
+        .css_classes(vec!["suggested-action".to_string(), "pill".to_string()])
+        .child(&empty_btn_content)
+        .visible(false)
+        .build();
+
+    let sender_clone = sender.clone();
+    empty_new_profile_button.connect_clicked(move |_| {
+        sender_clone.input(AppMsg::OpenCreateProfileDialog);
+    });
+
+    content_container.append(&empty_new_profile_button);
+
     main_box.append(&content_container);
-    main_box
+    (
+        main_box,
+        new_profile_header_button,
+        empty_new_profile_button,
+    )
 }
 
-pub fn update_profile_list(profile_list: &gtk::ListBox, profiles: &std::collections::HashMap<String, Profile>, sender: &ComponentSender<AppModel>) {
+pub fn update_profile_list(
+    profile_list: &gtk::ListBox,
+    new_profile_header_button: &gtk::Button,
+    empty_new_profile_button: &gtk::Button,
+    profiles: &std::collections::HashMap<String, Profile>,
+    sender: &ComponentSender<AppModel>,
+) {
     // Clear existing children
     while let Some(child) = profile_list.first_child() {
         profile_list.remove(&child);
     }
 
     if profiles.is_empty() {
-        let no_profiles_label = gtk::Label::builder()
-            .label("No profiles yet. Create one to get started!")
-            .halign(gtk::Align::Center)
-            .margin_top(24)
-            .margin_bottom(24)
-            .build();
-        profile_list.append(&no_profiles_label);
+        profile_list.set_visible(false);
+        new_profile_header_button.set_visible(false);
+        empty_new_profile_button.set_visible(true);
     } else {
+        profile_list.set_visible(true);
+        new_profile_header_button.set_visible(true);
+        empty_new_profile_button.set_visible(false);
         for (name, profile) in profiles {
             let row = create_profile_row(name, profile, sender);
             profile_list.append(&row);
@@ -64,7 +153,11 @@ pub fn update_profile_list(profile_list: &gtk::ListBox, profiles: &std::collecti
     }
 }
 
-fn create_profile_row(name: &str, profile: &Profile, sender: &ComponentSender<AppModel>) -> gtk::ListBoxRow {
+fn create_profile_row(
+    name: &str,
+    profile: &Profile,
+    sender: &ComponentSender<AppModel>,
+) -> gtk::ListBoxRow {
     let row = gtk::ListBoxRow::new();
 
     let box_container = gtk::Box::builder()
@@ -108,7 +201,10 @@ fn create_profile_row(name: &str, profile: &Profile, sender: &ComponentSender<Ap
     };
 
     let details_label = gtk::Label::builder()
-        .label(format!("{} • {} MB • {}", version_display, profile.ram_mb, playtime_str))
+        .label(format!(
+            "{} • {} MB • {}",
+            version_display, profile.ram_mb, playtime_str
+        ))
         .halign(gtk::Align::Start)
         .css_classes(vec!["dim-label".to_string()])
         .build();

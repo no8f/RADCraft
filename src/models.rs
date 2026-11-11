@@ -89,8 +89,6 @@ pub struct AssetIndexFile {
     pub objects: HashMap<String, AssetObject>,
 }
 
-
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Profile {
     pub username: String,
@@ -109,7 +107,6 @@ pub struct Profile {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Section {
     Home,
-    CreateInstance,
     Settings,
     Logs,
     Mods,

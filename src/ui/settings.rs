@@ -1,12 +1,16 @@
-use relm4::gtk;
-use relm4::ComponentSender;
-use gtk::prelude::*;
-use adw::prelude::*;
+use crate::models::Theme;
 use crate::ui::model::AppModel;
 use crate::ui::msg::AppMsg;
-use crate::models::Theme;
+use adw::prelude::*;
+use gtk::prelude::*;
+use relm4::ComponentSender;
+use relm4::gtk;
 
-pub fn create_settings_page(sender: &ComponentSender<AppModel>, hide_logs_switch: &adw::SwitchRow, hide_mods_switch: &adw::SwitchRow) -> (gtk::ScrolledWindow, adw::ComboRow) {
+pub fn create_settings_page(
+    sender: &ComponentSender<AppModel>,
+    hide_logs_switch: &adw::SwitchRow,
+    hide_mods_switch: &adw::SwitchRow,
+) -> (gtk::ScrolledWindow, adw::ComboRow) {
     let scrolled_window = gtk::ScrolledWindow::builder()
         .hexpand(true)
         .vexpand(true)
@@ -59,7 +63,6 @@ pub fn create_settings_page(sender: &ComponentSender<AppModel>, hide_logs_switch
     hide_mods_switch.set_halign(gtk::Align::Fill);
     hide_mods_switch.set_title("Hide Mods");
     hide_mods_switch.set_subtitle("Hide the Mods button in the sidebar");
-
 
     // Theme selection
     let theme_row = adw::ComboRow::builder()
@@ -120,10 +123,10 @@ pub fn create_settings_page(sender: &ComponentSender<AppModel>, hide_logs_switch
     about_list.set_hexpand(true);
     about_list.set_halign(gtk::Align::Fill);
 
-     // Source Code Row
+    // Source Code Row
     let repo_row = adw::ActionRow::builder()
         .title("Source Code")
-        .subtitle("https://github.com/vdkvdev/rcraft")
+        .subtitle("https://github.com/no8f/RADCraft")
         .build();
 
     // Make repo row clickable or have a button
@@ -135,7 +138,7 @@ pub fn create_settings_page(sender: &ComponentSender<AppModel>, hide_logs_switch
 
     // Add logic to open link
     repo_button.connect_clicked(move |_| {
-         let _ = open::that("https://github.com/vdkvdev/rcraft");
+        let _ = open::that("https://github.com/no8f/RADCraft");
     });
 
     repo_row.add_suffix(&repo_button);

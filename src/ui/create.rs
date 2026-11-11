@@ -1,23 +1,41 @@
-use relm4::gtk;
-use relm4::ComponentSender;
-use gtk::prelude::*;
-use adw::prelude::*;
-use adw::{ComboRow, EntryRow, SpinRow};
 use crate::ui::model::AppModel;
 use crate::ui::msg::AppMsg;
+use adw::prelude::*;
+use adw::{ComboRow, EntryRow, SpinRow};
+use gtk::prelude::*;
+use relm4::ComponentSender;
+use relm4::gtk;
 
-pub fn create_create_instance_page(
+pub fn create_create_instance_dialog(
+    parent: &adw::ApplicationWindow,
     sender: &ComponentSender<AppModel>,
     username_entry: &EntryRow,
     version_combo: &ComboRow,
     ram_scale: &SpinRow,
     fabric_switch: &adw::SwitchRow,
-) -> gtk::Box {
+) -> adw::Window {
+    let dialog = adw::Window::builder()
+        .title("New Profile")
+        .transient_for(parent)
+        .modal(true)
+        .default_width(480)
+        .hide_on_close(true)
+        .build();
+
+    let sender_close = sender.clone();
+    dialog.connect_close_request(move |_| {
+        sender_close.input(AppMsg::CloseCreateProfileDialog);
+        gtk::glib::Propagation::Stop
+    });
+
     let main_box = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .hexpand(true)
         .vexpand(true)
         .build();
+
+    let header_bar = adw::HeaderBar::new();
+    main_box.append(&header_bar);
 
     let content_container = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
@@ -29,15 +47,6 @@ pub fn create_create_instance_page(
         .margin_start(24)
         .margin_end(24)
         .build();
-
-    // Title label
-    let title_label = gtk::Label::builder()
-        .label("New Profile")
-        .halign(gtk::Align::Start)
-        .css_classes(vec!["title-1".to_string()])
-        .build();
-
-    content_container.append(&title_label);
 
     // List box for inputs
     let input_list = gtk::ListBox::new();
@@ -113,5 +122,6 @@ pub fn create_create_instance_page(
     content_container.append(&button_box);
 
     main_box.append(&content_container);
-    main_box
+    dialog.set_content(Some(&main_box));
+    dialog
 }

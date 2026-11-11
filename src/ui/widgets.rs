@@ -1,5 +1,4 @@
-
-use adw::{self, NavigationSplitView, NavigationPage};
+use adw::{self, NavigationPage, NavigationSplitView};
 use relm4::gtk;
 
 #[allow(dead_code)]
@@ -10,9 +9,9 @@ pub struct AppWidgets {
     pub navigation_page: NavigationPage,
     pub content_stack: gtk::Stack,
 
-    // Pages
+    // Pages & Dialogs
     pub home_page: gtk::Box,
-    pub create_page: gtk::Box,
+    pub create_dialog: adw::Window,
     pub settings_page: gtk::ScrolledWindow,
     pub mods_page: gtk::Box,
     pub logs_page: gtk::Box,
@@ -20,6 +19,8 @@ pub struct AppWidgets {
 
     // Home page widgets
     pub profile_list: gtk::ListBox,
+    pub new_profile_header_button: gtk::Button,
+    pub empty_new_profile_button: gtk::Button,
     pub username_entry: adw::EntryRow,
     pub version_combo: adw::ComboRow,
     pub ram_scale: adw::SpinRow,
@@ -36,7 +37,6 @@ pub struct AppWidgets {
 
     // Sidebar buttons
     pub home_button: gtk::Button,
-    pub create_sidebar_button: gtk::Button,
     pub mods_button: gtk::Button,
     pub settings_button: gtk::Button,
     pub logs_button: gtk::Button,
@@ -47,14 +47,12 @@ pub struct AppWidgets {
 
     // Sidebar button labels (for visibility)
     pub home_label: gtk::Label,
-    pub create_label: gtk::Label,
     pub mods_label: gtk::Label,
     pub settings_label: gtk::Label,
     pub logs_label: gtk::Label,
 
     // Sidebar button boxes (for alignment)
     pub home_box: gtk::Box,
-    pub create_box: gtk::Box,
     pub mods_box: gtk::Box,
     pub settings_box: gtk::Box,
     pub logs_box: gtk::Box,
@@ -76,7 +74,7 @@ pub struct AppWidgets {
 
     // Toast Overlay
     pub toast_overlay: adw::ToastOverlay,
-    
+
     // Java Confirmation Dialog
     pub java_dialog: adw::MessageDialog,
 

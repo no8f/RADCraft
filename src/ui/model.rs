@@ -1,19 +1,33 @@
-use std::collections::{HashMap, VecDeque};
-use relm4::{ComponentSender, gtk};
-use adw::prelude::*;
-use crate::models::{MinecraftVersion, Profile, Section, ModSearchResult};
-use crate::settings::Settings;
 use crate::launcher::MinecraftLauncher;
+use crate::models::{MinecraftVersion, ModSearchResult, Profile, Section};
 use crate::modrinth_client::ModrinthClient;
+use crate::settings::Settings;
+use adw::prelude::*;
+use relm4::{ComponentSender, gtk};
+use std::collections::{HashMap, VecDeque};
 
 #[derive(Debug, Clone)]
 pub enum AppState {
     Loading,
-    Ready { current_section: Section },
-    Downloading { version: String, progress: f64, status: String },
-    Launching { version: String },
-    GameRunning { #[allow(dead_code)] version: String },
-    Error { message: String },
+    Ready {
+        current_section: Section,
+    },
+    Downloading {
+        version: String,
+        progress: f64,
+        status: String,
+    },
+    #[allow(dead_code)]
+    Launching {
+        version: String,
+    },
+    GameRunning {
+        #[allow(dead_code)]
+        version: String,
+    },
+    Error {
+        message: String,
+    },
 }
 
 impl Default for AppState {
@@ -39,6 +53,7 @@ pub struct AppModel {
     pub input_ram: u32,
     pub input_install_fabric: bool,
     pub fabric_switch_enabled: bool,
+    pub create_dialog_open: bool,
 
     // Settings & Logs
     pub settings: Settings,
@@ -85,43 +100,47 @@ pub struct AppModel {
 }
 
 impl AppModel {
-     // Helper to update button state based on installation status
+    // Helper to update button state based on installation status
     pub fn update_mod_button_state(&self, project_id: &str) {
-         if let Some(list) = &self.mod_browse_list {
-             let is_installed = self.installed_mods.contains_key(project_id);
-             let icon_name = if is_installed { "user-trash-symbolic" } else { "folder-download-symbolic" };
-             let tooltip = if is_installed { "Uninstall" } else { "Install" };
-             let sensitive = true;
+        if let Some(list) = &self.mod_browse_list {
+            let is_installed = self.installed_mods.contains_key(project_id);
+            let icon_name = if is_installed {
+                "user-trash-symbolic"
+            } else {
+                "folder-download-symbolic"
+            };
+            let tooltip = if is_installed { "Uninstall" } else { "Install" };
+            let sensitive = true;
 
-             let mut sibling = list.first_child();
-             while let Some(child) = sibling {
-                   if let Some(row) = child.downcast_ref::<gtk::ListBoxRow>() {
-                        if let Some(box_widget) = row.child() {
-                             if let Some(bx) = box_widget.downcast_ref::<gtk::Box>() {
-                                  let mut box_child = bx.first_child();
-                                  while let Some(b_child) = box_child {
-                                       if let Some(button) = b_child.downcast_ref::<gtk::Button>() {
-                                            if button.widget_name() == format!("btn_{}", project_id) {
-                                                 button.set_icon_name(icon_name);
-                                                 button.set_tooltip_text(Some(tooltip));
-                                                 button.set_sensitive(sensitive);
+            let mut sibling = list.first_child();
+            while let Some(child) = sibling {
+                if let Some(row) = child.downcast_ref::<gtk::ListBoxRow>() {
+                    if let Some(box_widget) = row.child() {
+                        if let Some(bx) = box_widget.downcast_ref::<gtk::Box>() {
+                            let mut box_child = bx.first_child();
+                            while let Some(b_child) = box_child {
+                                if let Some(button) = b_child.downcast_ref::<gtk::Button>() {
+                                    if button.widget_name() == format!("btn_{}", project_id) {
+                                        button.set_icon_name(icon_name);
+                                        button.set_tooltip_text(Some(tooltip));
+                                        button.set_sensitive(sensitive);
 
-                                                 // Update CSS class?
-                                                 if is_installed {
-                                                     button.add_css_class("destructive-action");
-                                                 } else {
-                                                     button.remove_css_class("destructive-action");
-                                                 }
-                                                 break;
-                                            }
-                                       }
-                                       box_child = b_child.next_sibling();
-                                  }
-                             }
+                                        // Update CSS class?
+                                        if is_installed {
+                                            button.add_css_class("destructive-action");
+                                        } else {
+                                            button.remove_css_class("destructive-action");
+                                        }
+                                        break;
+                                    }
+                                }
+                                box_child = b_child.next_sibling();
+                            }
                         }
-                   }
-                   sibling = child.next_sibling();
-             }
-         }
+                    }
+                }
+                sibling = child.next_sibling();
+            }
+        }
     }
 }
