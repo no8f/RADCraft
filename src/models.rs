@@ -149,12 +149,18 @@ pub struct ModSearchResult {
     pub downloads: u32,
 }
 
+fn default_mod_version_type() -> String {
+    "release".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModVersion {
     pub id: String,
     pub project_id: String,
     pub name: String,
     pub version_number: String,
+    #[serde(default = "default_mod_version_type")]
+    pub version_type: String,
     pub game_versions: Vec<String>,
     pub loaders: Vec<String>,
     pub files: Vec<ModFile>,

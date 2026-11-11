@@ -573,6 +573,10 @@ impl MinecraftLauncher {
 
         let classpath = self.build_classpath(version).await?;
 
+        if !game_dir.exists() {
+            fs::create_dir_all(game_dir).await?;
+        }
+
         let launch_username = account.map(|a| a.username.as_str()).unwrap_or(username);
 
         let mut command = TokioCommand::new(java_path);
@@ -611,7 +615,7 @@ impl MinecraftLauncher {
         command
             .arg("--userProperties")
             .arg("{}")
-            .current_dir(&version_dir)
+            .current_dir(game_dir)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 

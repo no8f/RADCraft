@@ -55,7 +55,7 @@ impl SimpleComponent for AppModel {
             .build();
         window.set_decorated(true);
 
-        // Load CSS for transparency
+        // Load CSS for transparency and colored version comboboxes
         let provider = gtk::CssProvider::new();
         provider.load_from_data("
             .transparent-window { background-color: rgba(30, 30, 30, 0.85); }
@@ -89,6 +89,53 @@ impl SimpleComponent for AppModel {
 
             /* Remove background from titlebar buttons */
             .transparent-window headerbar button { background-color: transparent; box-shadow: none; border: none; }
+
+            /* Colored Modrinth Version Comboboxes (Release / Beta / Alpha) */
+            dropdown.mod-version-combo > button {
+                border-radius: 8px;
+                padding: 4px 10px;
+                font-weight: 600;
+            }
+            dropdown.mod-version-release > button,
+            .transparent-window dropdown.mod-version-release > button {
+                background-color: alpha(#2ec27e, 0.18);
+                border: 1px solid alpha(#2ec27e, 0.55);
+            }
+            dropdown.mod-version-beta > button,
+            .transparent-window dropdown.mod-version-beta > button {
+                background-color: alpha(#e5a50a, 0.18);
+                border: 1px solid alpha(#e5a50a, 0.55);
+            }
+            dropdown.mod-version-alpha > button,
+            .transparent-window dropdown.mod-version-alpha > button {
+                background-color: alpha(#e01b24, 0.18);
+                border: 1px solid alpha(#e01b24, 0.55);
+            }
+
+            .mod-badge-release {
+                background-color: alpha(#2ec27e, 0.25);
+                color: #2ec27e;
+                border-radius: 6px;
+                padding: 2px 6px;
+                font-size: 0.8em;
+                font-weight: bold;
+            }
+            .mod-badge-beta {
+                background-color: alpha(#e5a50a, 0.25);
+                color: #e5a50a;
+                border-radius: 6px;
+                padding: 2px 6px;
+                font-size: 0.8em;
+                font-weight: bold;
+            }
+            .mod-badge-alpha {
+                background-color: alpha(#e01b24, 0.25);
+                color: #e01b24;
+                border-radius: 6px;
+                padding: 2px 6px;
+                font-size: 0.8em;
+                font-weight: bold;
+            }
         ");
 
         if let Some(display) = gtk::gdk::Display::default() {
@@ -150,6 +197,8 @@ impl SimpleComponent for AppModel {
             version_list_model: None,
 
             mod_search_results: Vec::new(),
+            mod_versions: HashMap::new(),
+            selected_mod_versions: HashMap::new(),
             mod_search_entry: None,
             mod_browse_list: None,
             mod_installed_list: None,
@@ -969,6 +1018,18 @@ impl SimpleComponent for AppModel {
                                 sender_progress.input(AppMsg::DownloadProgress(pct, msg));
                             };
 
+                            let instance_dir = profile_clone
+                                .game_dir
+                                .as_ref()
+                                .map(std::path::PathBuf::from)
+                                .unwrap_or_else(|| {
+                                    launcher_clone
+                                        .config
+                                        .minecraft_dir
+                                        .join("instances")
+                                        .join(&profile_name_clone)
+                                });
+
                             // 1. Prepare and Launch
                             match launcher_clone
                                 .prepare_and_launch(
@@ -976,10 +1037,7 @@ impl SimpleComponent for AppModel {
                                     profile_clone.username.clone(),
                                     profile_clone.ram_mb,
                                     profile_clone.is_fabric,
-                                    profile_clone
-                                        .game_dir
-                                        .as_ref()
-                                        .map(std::path::PathBuf::from),
+                                    Some(instance_dir),
                                     account_clone,
                                     on_progress,
                                 )
@@ -1169,6 +1227,21 @@ impl SimpleComponent for AppModel {
                 let is_fabric =
                     self.input_install_fabric && crate::utils::is_at_least_1_14(&selected_version);
 
+                let profile_name = if is_fabric {
+                    format!("{}_{}_fabric", self.input_username, selected_version)
+                } else {
+                    format!("{}_{}", self.input_username, selected_version)
+                };
+
+                let game_dir = self.launcher.as_ref().map(|l| {
+                    l.config
+                        .minecraft_dir
+                        .join("instances")
+                        .join(&profile_name)
+                        .to_string_lossy()
+                        .to_string()
+                });
+
                 let profile = Profile {
                     username: self.input_username.clone(),
                     version: selected_version.clone(),
@@ -1176,13 +1249,7 @@ impl SimpleComponent for AppModel {
                     playtime_seconds: 0,
                     last_launch: None,
                     is_fabric,
-                    game_dir: None,
-                };
-
-                let profile_name = if is_fabric {
-                    format!("{}_{}_fabric", profile.username, profile.version)
-                } else {
-                    format!("{}_{}", profile.username, profile.version)
+                    game_dir,
                 };
 
                 self.profiles.insert(profile_name.clone(), profile);
@@ -1296,7 +1363,11 @@ impl SimpleComponent for AppModel {
             }
             AppMsg::SelectModProfile(profile_name) => {
                 self.selected_mod_profile = Some(profile_name);
+                self.installed_mods.clear();
                 sender.input(AppMsg::RefreshInstalledMods);
+                for mod_data in &self.mod_search_results {
+                    sender.input(AppMsg::FetchModVersions(mod_data.project_id.clone()));
+                }
             }
             AppMsg::SearchMods(query) => {
                 self.is_searching = true;
@@ -1332,6 +1403,8 @@ impl SimpleComponent for AppModel {
                 match result {
                     Ok(results) => {
                         self.mod_search_results = results.clone();
+                        self.mod_versions.clear();
+                        self.selected_mod_versions.clear();
                         if let Some(list) = &self.mod_browse_list {
                             while let Some(child) = list.first_child() {
                                 list.remove(&child);
@@ -1345,11 +1418,63 @@ impl SimpleComponent for AppModel {
                                         url.clone(),
                                     ));
                                 }
+                                sender.input(AppMsg::FetchModVersions(mod_data.project_id.clone()));
                             }
                         }
                     }
                     Err(_) => {}
                 }
+            }
+            AppMsg::FetchModVersions(project_id) => {
+                let modrinth = self.modrinth.clone();
+                let sender_clone = sender.clone();
+                let (version_filter, loader_filter) = self.get_profile_filters();
+
+                self.rt.spawn(async move {
+                    let v_ref = version_filter.as_deref();
+                    let l_ref = loader_filter.as_deref();
+                    match modrinth.get_versions(&project_id, l_ref, v_ref).await {
+                        Ok(versions) => {
+                            sender_clone.input(AppMsg::ModVersionsLoaded(project_id, versions));
+                        }
+                        Err(_) => {
+                            sender_clone.input(AppMsg::ModVersionsLoaded(project_id, Vec::new()));
+                        }
+                    }
+                });
+            }
+            AppMsg::ModVersionsLoaded(project_id, versions) => {
+                let mut selected_idx: u32 = 0;
+
+                if let Some(mods_dir) = self.get_mods_dir() {
+                    'outer: for (idx, ver) in versions.iter().enumerate() {
+                        for file in &ver.files {
+                            if mods_dir.join(&file.filename).exists() {
+                                self.installed_mods
+                                    .insert(project_id.clone(), file.filename.clone());
+                                selected_idx = idx as u32;
+                                break 'outer;
+                            }
+                        }
+                    }
+                }
+
+                if let Some(ver) = versions.get(selected_idx as usize) {
+                    self.selected_mod_versions
+                        .insert(project_id.clone(), ver.id.clone());
+                } else {
+                    self.selected_mod_versions.remove(&project_id);
+                }
+
+                self.mod_versions
+                    .insert(project_id.clone(), versions.clone());
+                self.update_mod_versions_dropdown(&project_id, &versions, selected_idx);
+                self.update_mod_button_state(&project_id);
+            }
+            AppMsg::SelectModVersion(project_id, version_id) => {
+                self.selected_mod_versions
+                    .insert(project_id.clone(), version_id);
+                self.update_mod_button_state(&project_id);
             }
             AppMsg::InstallMod(project_id) => {
                 let modrinth = self.modrinth.clone();
@@ -1365,65 +1490,91 @@ impl SimpleComponent for AppModel {
                     let _ = std::fs::create_dir_all(&mods_dir);
                 }
 
-                // Set button loading state (simplified)
+                // If another version of this mod is currently installed, remove the old jar first
+                if let Some(old_filename) = self.installed_mods.remove(&project_id) {
+                    let old_path = mods_dir.join(&old_filename);
+                    if old_path.exists() {
+                        let _ = std::fs::remove_file(&old_path);
+                    }
+                }
+
+                // Check if the user selected a specific version from the combobox
+                let preselected_version = self.mod_versions.get(&project_id).and_then(|versions| {
+                    if let Some(selected_vid) = self.selected_mod_versions.get(&project_id) {
+                        versions.iter().find(|v| &v.id == selected_vid).cloned()
+                    } else {
+                        versions.first().cloned()
+                    }
+                });
 
                 let (version_filter, loader_filter) = self.get_profile_filters();
 
                 std::thread::spawn(move || {
                     let rt = tokio::runtime::Runtime::new().unwrap();
                     rt.block_on(async {
-                        let v_ref = version_filter.as_deref();
-                        let l_ref = loader_filter.as_deref();
-                        match modrinth.get_versions(&project_id, l_ref, v_ref).await {
-                            Ok(versions) => {
-                                if let Some(version) = versions.first() {
-                                    if let Some(file) = version
-                                        .files
-                                        .iter()
-                                        .find(|f| f.primary)
-                                        .or(version.files.first())
-                                    {
-                                        let path = mods_dir.join(&file.filename);
-                                        match modrinth.download_mod(&file.url, &path).await {
-                                            Ok(_) => {
-                                                sender_clone.input(AppMsg::ShowToast(
-                                                    "Mod installed!".to_string(),
-                                                ));
-                                                sender_clone.input(AppMsg::RefreshInstalledMods);
-                                                sender_clone.input(AppMsg::RegisterInstalledMod(
-                                                    project_id.clone(),
-                                                    file.filename.clone(),
-                                                ));
-                                                sender_clone.input(AppMsg::ModInstallFinished(
-                                                    project_id.clone(),
-                                                    (),
-                                                ));
-                                            }
-                                            Err(e) => {
-                                                sender_clone.input(AppMsg::Error(format!(
-                                                    "Download failed: {}",
-                                                    e
-                                                )));
-                                                sender_clone.input(AppMsg::ModInstallFinished(
-                                                    project_id.clone(),
-                                                    (),
-                                                ));
-                                            }
-                                        }
+                        let target_version = if let Some(ver) = preselected_version {
+                            Ok(Some(ver))
+                        } else {
+                            let v_ref = version_filter.as_deref();
+                            let l_ref = loader_filter.as_deref();
+                            modrinth
+                                .get_versions(&project_id, l_ref, v_ref)
+                                .await
+                                .map(|mut v| {
+                                    if v.is_empty() {
+                                        None
                                     } else {
-                                        sender_clone
-                                            .input(AppMsg::Error("No files found".to_string()));
-                                        sender_clone.input(AppMsg::ModInstallFinished(
-                                            project_id.clone(),
-                                            (),
-                                        ));
+                                        Some(v.remove(0))
+                                    }
+                                })
+                        };
+
+                        match target_version {
+                            Ok(Some(version)) => {
+                                if let Some(file) = version
+                                    .files
+                                    .iter()
+                                    .find(|f| f.primary)
+                                    .or(version.files.first())
+                                {
+                                    let path = mods_dir.join(&file.filename);
+                                    match modrinth.download_mod(&file.url, &path).await {
+                                        Ok(_) => {
+                                            sender_clone.input(AppMsg::ShowToast(format!(
+                                                "Installed {} ({})",
+                                                version.version_number, version.version_type
+                                            )));
+                                            sender_clone.input(AppMsg::RefreshInstalledMods);
+                                            sender_clone.input(AppMsg::RegisterInstalledMod(
+                                                project_id.clone(),
+                                                file.filename.clone(),
+                                            ));
+                                            sender_clone.input(AppMsg::ModInstallFinished(
+                                                project_id.clone(),
+                                                (),
+                                            ));
+                                        }
+                                        Err(e) => {
+                                            sender_clone.input(AppMsg::Error(format!(
+                                                "Download failed: {}",
+                                                e
+                                            )));
+                                            sender_clone.input(AppMsg::ModInstallFinished(
+                                                project_id.clone(),
+                                                (),
+                                            ));
+                                        }
                                     }
                                 } else {
-                                    sender_clone
-                                        .input(AppMsg::Error("No versions found".to_string()));
+                                    sender_clone.input(AppMsg::Error("No files found".to_string()));
                                     sender_clone
                                         .input(AppMsg::ModInstallFinished(project_id.clone(), ()));
                                 }
+                            }
+                            Ok(None) => {
+                                sender_clone.input(AppMsg::Error("No versions found".to_string()));
+                                sender_clone
+                                    .input(AppMsg::ModInstallFinished(project_id.clone(), ()));
                             }
                             Err(e) => {
                                 sender_clone.input(AppMsg::Error(format!(
@@ -1560,8 +1711,10 @@ impl SimpleComponent for AppModel {
                 self.update_mod_button_state(&project_id);
             }
             AppMsg::ModActionButtonClicked(project_id) => {
-                if let Some(filename) = self.installed_mods.get(&project_id) {
-                    sender.input(AppMsg::UninstallMod(filename.clone()));
+                if self.is_selected_version_installed(&project_id) {
+                    if let Some(filename) = self.installed_mods.get(&project_id) {
+                        sender.input(AppMsg::UninstallMod(filename.clone()));
+                    }
                 } else {
                     sender.input(AppMsg::InstallMod(project_id));
                 }

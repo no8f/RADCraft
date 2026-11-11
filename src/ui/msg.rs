@@ -1,5 +1,5 @@
 use crate::auth::MicrosoftAccount;
-use crate::models::{MinecraftVersion, ModSearchResult, Profile, Section, Theme};
+use crate::models::{MinecraftVersion, ModSearchResult, ModVersion, Profile, Section, Theme};
 use crate::settings::Settings;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -48,10 +48,13 @@ pub enum AppMsg {
     // Modrinth Messages
     SearchMods(String),
     ModsSearched(Result<Vec<ModSearchResult>, String>),
-    InstallMod(String),                // Project ID
-    UninstallMod(String),              // Filename
-    DownloadModIcon(String, String),   // Project ID, URL
-    ModIconDownloaded(String, String), // project_id, path
+    FetchModVersions(String),                   // Project ID
+    ModVersionsLoaded(String, Vec<ModVersion>), // Project ID, Versions
+    SelectModVersion(String, String),           // Project ID, Version ID
+    InstallMod(String),                         // Project ID
+    UninstallMod(String),                       // Filename
+    DownloadModIcon(String, String),            // Project ID, URL
+    ModIconDownloaded(String, String),          // project_id, path
     ProcessIconQueue,
     ModActionButtonClicked(String), // project_id (Toggle Install/Uninstall)
     ModInstallFinished(String, ()), // project_id, success (bool unused)

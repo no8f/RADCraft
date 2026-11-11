@@ -1,11 +1,21 @@
-use relm4::gtk;
-use relm4::{ComponentSender, RelmWidgetExt};
-use gtk::prelude::*;
+use crate::models::ModSearchResult;
 use crate::ui::model::AppModel;
 use crate::ui::msg::AppMsg;
-use crate::models::ModSearchResult;
+use gtk::prelude::*;
+use relm4::gtk;
+use relm4::{ComponentSender, RelmWidgetExt};
 
-pub fn create_mods_page(sender: &ComponentSender<AppModel>) -> (gtk::Box, gtk::SearchEntry, gtk::Button, gtk::Stack, gtk::ListBox, gtk::ListBox, gtk::DropDown) {
+pub fn create_mods_page(
+    sender: &ComponentSender<AppModel>,
+) -> (
+    gtk::Box,
+    gtk::SearchEntry,
+    gtk::Button,
+    gtk::Stack,
+    gtk::ListBox,
+    gtk::ListBox,
+    gtk::DropDown,
+) {
     let container = gtk::Box::new(gtk::Orientation::Vertical, 24);
     container.set_margin_all(24);
     container.set_vexpand(true);
@@ -43,8 +53,8 @@ pub fn create_mods_page(sender: &ComponentSender<AppModel>) -> (gtk::Box, gtk::S
             if let Some(string_obj) = item.downcast_ref::<gtk::StringObject>() {
                 let full_string = string_obj.string().to_string();
                 if let Some((name, version)) = full_string.rsplit_once(" - ") {
-                     let key = format!("{}_{}_fabric", name, version);
-                     sender_clone.input(AppMsg::SelectModProfile(key));
+                    let key = format!("{}_{}_fabric", name, version);
+                    sender_clone.input(AppMsg::SelectModProfile(key));
                 }
             }
         }
@@ -127,9 +137,7 @@ pub fn create_mods_page(sender: &ComponentSender<AppModel>) -> (gtk::Box, gtk::S
         .tooltip_text("Search")
         .build();
 
-    let _search_spinner = gtk::Spinner::builder()
-        .spinning(true)
-        .build();
+    let _search_spinner = gtk::Spinner::builder().spinning(true).build();
 
     let search_stack = gtk::Stack::new();
     search_stack.add_named(&search_button, Some("button"));
@@ -160,10 +168,109 @@ pub fn create_mods_page(sender: &ComponentSender<AppModel>) -> (gtk::Box, gtk::S
 
     stack.set_visible_child_name("installed");
 
-    (container, search_bar, search_button, search_stack, installed_list, browse_list, profile_dropdown)
+    (
+        container,
+        search_bar,
+        search_button,
+        search_stack,
+        installed_list,
+        browse_list,
+        profile_dropdown,
+    )
 }
 
-pub fn create_mod_search_result_row(mod_data: &ModSearchResult, sender: &ComponentSender<AppModel>) -> gtk::ListBoxRow {
+fn create_version_item_factory() -> gtk::SignalListItemFactory {
+    let factory = gtk::SignalListItemFactory::new();
+
+    factory.connect_setup(|_, obj| {
+        if let Some(list_item) = obj.downcast_ref::<gtk::ListItem>() {
+            let item_box = gtk::Box::builder()
+                .orientation(gtk::Orientation::Horizontal)
+                .spacing(6)
+                .valign(gtk::Align::Center)
+                .build();
+
+            let badge = gtk::Label::builder().valign(gtk::Align::Center).build();
+
+            let ver_label = gtk::Label::builder()
+                .valign(gtk::Align::Center)
+                .ellipsize(gtk::pango::EllipsizeMode::End)
+                .max_width_chars(18)
+                .build();
+
+            item_box.append(&badge);
+            item_box.append(&ver_label);
+            list_item.set_child(Some(&item_box));
+        }
+    });
+
+    factory.connect_bind(|_, obj| {
+        if let Some(list_item) = obj.downcast_ref::<gtk::ListItem>() {
+            let Some(item) = list_item.item() else { return };
+            let Some(string_obj) = item.downcast_ref::<gtk::StringObject>() else {
+                return;
+            };
+            let Some(child) = list_item.child() else {
+                return;
+            };
+            let Some(item_box) = child.downcast_ref::<gtk::Box>() else {
+                return;
+            };
+
+            let Some(first) = item_box.first_child() else {
+                return;
+            };
+            let Some(second) = first.next_sibling() else {
+                return;
+            };
+            let Some(badge) = first.downcast_ref::<gtk::Label>() else {
+                return;
+            };
+            let Some(ver_label) = second.downcast_ref::<gtk::Label>() else {
+                return;
+            };
+
+            let raw = string_obj.string();
+            let parts: Vec<&str> = raw.splitn(3, '|').collect();
+            let v_type = parts.get(1).copied().unwrap_or("none");
+            let v_num = parts.get(2).copied().unwrap_or(raw.as_str());
+
+            badge.remove_css_class("mod-badge-release");
+            badge.remove_css_class("mod-badge-beta");
+            badge.remove_css_class("mod-badge-alpha");
+
+            match v_type {
+                "release" => {
+                    badge.set_text("Release");
+                    badge.add_css_class("mod-badge-release");
+                    badge.set_visible(true);
+                }
+                "beta" => {
+                    badge.set_text("Beta");
+                    badge.add_css_class("mod-badge-beta");
+                    badge.set_visible(true);
+                }
+                "alpha" => {
+                    badge.set_text("Alpha");
+                    badge.add_css_class("mod-badge-alpha");
+                    badge.set_visible(true);
+                }
+                _ => {
+                    badge.set_visible(false);
+                }
+            }
+
+            ver_label.set_text(v_num);
+        }
+    });
+
+    factory
+}
+
+pub fn create_mod_search_result_row(
+    mod_data: &ModSearchResult,
+    sender: &ComponentSender<AppModel>,
+) -> gtk::ListBoxRow {
     let row = gtk::ListBoxRow::new();
     let box_container = gtk::Box::new(gtk::Orientation::Horizontal, 12);
     box_container.set_margin_all(12);
@@ -184,13 +291,60 @@ pub fn create_mod_search_result_row(mod_data: &ModSearchResult, sender: &Compone
         .label(&desc_text)
         .halign(gtk::Align::Start)
         .wrap(true)
-        .max_width_chars(60)
+        .max_width_chars(45)
         .ellipsize(gtk::pango::EllipsizeMode::End)
         .lines(2)
         .build();
 
     info_box.append(&title);
     info_box.append(&description);
+
+    // Colored Version Combobox (Release / Beta / Alpha)
+    let initial_versions = gtk::StringList::new(&["|loading|Loading..."]);
+    let button_factory = create_version_item_factory();
+    let list_factory = create_version_item_factory();
+
+    let version_dropdown = gtk::DropDown::builder()
+        .model(&initial_versions)
+        .factory(&button_factory)
+        .list_factory(&list_factory)
+        .valign(gtk::Align::Center)
+        .tooltip_text("Select mod version (Release / Beta / Alpha)")
+        .sensitive(false)
+        .name(&format!("ver_{}", mod_data.project_id))
+        .css_classes(vec!["mod-version-combo".to_string()])
+        .build();
+
+    let project_id_ver = mod_data.project_id.clone();
+    let sender_ver = sender.clone();
+    version_dropdown.connect_selected_item_notify(move |dropdown| {
+        dropdown.remove_css_class("mod-version-release");
+        dropdown.remove_css_class("mod-version-beta");
+        dropdown.remove_css_class("mod-version-alpha");
+
+        if let Some(item) = dropdown.selected_item() {
+            if let Some(string_obj) = item.downcast_ref::<gtk::StringObject>() {
+                let raw = string_obj.string();
+                let parts: Vec<&str> = raw.splitn(3, '|').collect();
+                let v_id = parts.first().copied().unwrap_or("");
+                let v_type = parts.get(1).copied().unwrap_or("none");
+
+                match v_type {
+                    "release" => dropdown.add_css_class("mod-version-release"),
+                    "beta" => dropdown.add_css_class("mod-version-beta"),
+                    "alpha" => dropdown.add_css_class("mod-version-alpha"),
+                    _ => {}
+                }
+
+                if !v_id.is_empty() {
+                    sender_ver.input(AppMsg::SelectModVersion(
+                        project_id_ver.clone(),
+                        v_id.to_string(),
+                    ));
+                }
+            }
+        }
+    });
 
     let download_button = gtk::Button::builder()
         .icon_name("folder-download-symbolic")
@@ -223,6 +377,7 @@ pub fn create_mod_search_result_row(mod_data: &ModSearchResult, sender: &Compone
     let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     spacer.set_hexpand(true);
     box_container.append(&spacer);
+    box_container.append(&version_dropdown);
     box_container.append(&view_button);
     box_container.append(&download_button);
 
